@@ -1,0 +1,230 @@
+---
+title: "Using Machine Learning to Discover Employee Absenteeism Reasons"
+author: "Parker Oakes"
+date: "February 24, 2019"
+output: html_document
+---
+
+This project came about to implement unsupervised machine learning skills with my preexisting Exploratory Data Analysis techniques. I found a very applicable data set from the University of California Irvine [machine learning repository](https://archive.ics.uci.edu/ml/datasets/Absenteeism+at+work). This data was created by PhD students in Brazil attending Universidade Nove de Julho working on their thesis. In a brief explanation of the data as the UCI repo web page states in the data’s abstract: “The database was created with records of absenteeism at work from July 2007 to July 2010 at a courier company in Brazil.” One thing I really got excited about with this data set was its practical applicability and how great it was to be used for machine learning.
+
+```{r echo=TRUE}
+WorkAbs<-read.csv("Absenteeism_at_work.csv",
+    sep=";",header=T)
+```
+
+To introduce this data set: this data file is in a CSV format. There are 21 columns (variables), 740 rows (observations) and there are no missing values. You can see each variable listed in the previously mentioned UCI web page. The 21 columns of this data set are split into six sections:
+
+1. ID and reasons for absences
+2. Absence Time Profile
+3. Distance and Transportation Profile
+4. Work Performance Profile
+5. Lifestyle Profile
+6. Physical Profile
+
+In the initial stage of EDA you need to have a question before diving into your data. One mistake I have previously made is not having a question first. An initial question is the best component analysis. If we are without a question first, we are only left with data as something interesting and it is not actionable. Without delay, my question going into the data is, What is the most convincing reason for absences based on data set? I tried the easy solution first by finding the mode in the “Reasons.for.absence” column with the following created function:
+
+```{r echo=TRUE}
+WorkAbs$Reason.for.absence<-as.factor(WorkAbs$Reason.for.absence)
+getmode<-function(v){
+   uniqv<-unique(v)
+   uniqv[which.max(tabulate(match(v,uniqv)))]
+}
+getmode(WorkAbs$Reason.for.absence)
+```
+
+As we can tell with our “getmode” function, the most frequently occurring reason for absence is the category “23”. Per the UCI web page, this is known as “medical consultation”. I believe this answer only gives us a glimpse of absenteeism. The next step is to prove this initial step by checking our distributions, frequencies and blatantly correlated reasons for absence.
+
+```{r echo=TRUE}
+AbsReasons1<-table(WorkAbs$Reason.for.absence)
+AbsReasons2<-as.data.frame(AbsReasons1)
+AbsReasons2Var1<-as.character(AbsReasons2$Var1)
+
+m<-rbind(c(1,1,1),c(2,3,4))
+layout(m)
+par(mar=c(5,5,5,2),len=1)
+boxplot(WorkAbs$Absenteeism.time.in.hours~WorkAbs$Reason.for.absence,
+        main="Work Hours Missed by Category",
+        xlab="Reasons for Absence by Category",
+        ylab="Work Hours Missed",cex.names=0.8)
+title(list("Initial Discovery of The Reason for Abseentism by 4 Plots",cex=1.5,
+           col="red",font = 6),line=-1.5,outer=T)
+plot(WorkAbs$Absenteeism.time.in.hours,WorkAbs$Distance.from.Residence.to.Work,
+     main="Absenteesim Related to \nDistance From Work",
+     xlab="Abseentism in Hours",
+     ylab="Distance From Home to Work")
+barplot(AbsReasons2$Freq,
+    main="Top 10% Absense Reasons \nby Frequency",
+    xlab="Frequency",
+    ylab="Reasons for Absence by Category",
+    names.arg=AbsReasons2$Var1,
+    horiz=T)
+    abline(v=quantile(AbsReasons2$Freq,0.9),
+        col="red",lty=3,lwd=3)
+boxplot(AbsReasons2$Freq,
+        main="Absence Reasons \nOutlier Detection",
+        xlab="Frequency Distribution of \nAbsence Reasons")
+```
+
+Per the above descriptive statistical plots, employees absenteeism cannot be properly identified in the “Work Hours Missed per Category” plot since the greatest range of hours only has a minimal frequency in the “Top 10% . . .” plot. Also, a practical explanation of employees living too far from work was not plausible since the absenteeism in hours was minimal. Per the “Top 10% . . .” plot, we see that the majority of employees who were absent from work fell within the 90th quantile (or top 10%) of all of the categories. These categories are 13, 23, 27 and 28. According to the UCI web page, “[Categories 1-21] Absences attested by the International Code of Diseases (ICD) stratified into 21 categories . . . And 7 categories without (CID) patient follow-up [categories 22-28].” Please see the following tables detailing the most frequent categories explaining absenteeism per our initial discovery:
+
+| Category | Explanation of Number Category|
+|:---------|:-----------------------------|
+|13 |	Diseases of the Musculoskeletal System and Connective Tissue |
+|23 |	Medical Consultation |
+|27	| Physiotherapy |
+|28	| Dental Consultation |
+
+Given these four categories are physical in nature, but also to regular physical maintenance, we need to build a physical profile for these employees by sampling this group of 99 employees by these four categories. We will then categorize the physical profile of these 99 employees by an unsupervised machine learning technique called clustering.
+
+```{r echo=TRUE}
+# create sample containing categories 13, 23, 27 & 28
+# with sum of 99 observations 
+AbsCat<-c(13,23,27,28)
+Absentees<-WorkAbs[WorkAbs$Reason.for.absence==AbsCat,]
+
+# 9. challenege your solution
+# Create Physical Profiles of Reocurring Absentees
+Weight<-Absentees$Weight
+Height<-Absentees$Height
+PhysicalProfile<-data.frame(Height,Weight)
+PhysicalProfile1<-data.frame(Height,Weight)
+PhysicalProfile$ID<-Absentees$ID
+PhysicalProfile$Reason<-Absentees$Reason.for.absence
+PhysicalProfile$BMI<-Absentees$Body.mass.index
+PhysicalProfile$Age<-Absentees$Age
+BMI<-table(Absentees$Body.mass.index)
+BMI1<-as.data.frame(BMI)
+
+# comparing euclidean distances vs manhattan distances
+if(all(dist(PhysicalProfile1,method="euclidean")==
+  dist(PhysicalProfile1,method="manhattan"))==TRUE){
+        message("Euclidean Distances == Manhattan Distances")
+}else{
+        message("Euclidean Distances != Manhattan Distances")
+}
+PPdistE<-dist(PhysicalProfile1,method="euclidean")
+PPdistM<-dist(PhysicalProfile1,method="manhattan")
+
+# hierchical clustering linkage comparison
+PPhclustEC<-hclust(PPdistE,"complete")
+PPhclustEA<-hclust(PPdistE,"average")
+PPhclustES<-hclust(PPdistE,"single")
+PPhclustMC<-hclust(PPdistM,"complete")
+PPhclustMA<-hclust(PPdistM,"average")
+PPhclustMS<-hclust(PPdistM,"single")
+
+# euclidean/ manhattan dendrogram comparison
+par(mfrow=c(2,3))
+plot(PPhclustEC,main="Euclidean \nComplete Linkage")
+rect.hclust(PPhclustEC,k=7,border="red")
+plot(PPhclustEA,main="Euclidean \nAverage Linkage")
+rect.hclust(PPhclustEA,k=7,border="red")
+plot(PPhclustES,main="Euclidean \nSingle Linkage")
+rect.hclust(PPhclustES,k=7,border="red")
+plot(PPhclustMC,main="Manhattan \nComplete Linkage")
+rect.hclust(PPhclustMC,k=7,border="red")
+plot(PPhclustMA,main="Manhattan \nAverage Linkage")
+rect.hclust(PPhclustMA,k=7,border="red")
+plot(PPhclustMS,main="Manhattan \nSingle Linkage")
+rect.hclust(PPhclustMS,k=7,border="red")
+```
+
+The above plot shows 6 dendrograms. These dendrograms explain three different linkage methods of hierarchical clustering. These three linkage methods are: complete, average and single. Without going into great detail, linkage is explained in the denrogram by the tree appearance. All the above dendrograms have seven red boxes to indicate where we are cutting the cluster tree and determine our cluster amount. After looking at the height and clarity of the groupings, I have decided to use the “complete” linkage method. Now we must decide whether the “euclidean” or the “manhattan” methods will work better.
+
+```{r echo=TRUE}
+png("Plot3.png",width=520,height=480)
+par(mfrow=c(1,2))
+plot(Weight,Height,col=cutree(PPhclustEC,k=7),pch=19,
+     main="Physical Profile Using \nEuclidean Distance &\nComplete Linkage",
+     xlab="Weight in Kilograms",
+     ylab="Height in Centimeters")
+legend("topleft",pch=19,col=as.character(1:7),
+       legend=as.character(1:7))
+plot(Weight,Height,col=cutree(PPhclustMC,k=7),pch=19,
+     main="Physical Profile Using \nManhattan Distance &\nComplete Linkage",
+     xlab="Weight in Kilograms",
+     ylab="Height in Centimeters")
+legend("topleft",pch=19,col=as.character(1:7),
+       legend=as.character(1:7))
+```
+
+The “euclidean” and “manhattan” methods are methods of measurement to determine distance between two points. Euclidean’s method is “as the crow flies” so to speak. It looks for the straight line between the two points. The manhattan method is “as a man walks”. Man has to observe streets and buildings where crows can fly straight and above buildings. The manhattan method looks for the right angles between the two points and judges its distance in an “L” shaped pattern. Per the two above plots, the manhattan distance has proven to show us better clustering whereas the euclidean method is lumping clusters 1, 3 and 4 together and the manhattan method has the 99 employees nicely clustered separately.
+
+```{r echo=TRUE}
+# Build Hclust and Kmeans Data
+Hclust1<-cutree(PPhclustMC,k=7)
+PhysicalProfile$Groups<-Hclust1
+Absentees$Groups<-Hclust1
+kmM<-kmeans(dist(PhysicalProfile1,
+        method="manhattan"),centers=7,nstart=50)
+Absentees$Grps<-kmM$cluster
+
+# kmeans vs hierchical cluster comparisons
+par(mfrow=c(1,2))
+plot(Absentees$Weight,Absentees$Height,col=kmM$cluster,pch=19,main="kmeans")
+plot(Absentees$Weight,Absentees$Height,col=Absentees$Groups,pch=19,main="hclust")
+```
+
+Now that we have determined our hierarchical clustering method, we must compare our hierarchical model to the K means algorithm. K means clustering works the opposite from hierarchical clustering in that it works from the top down by placing centers in the data first before it can be clustered. Hierarchical is a bottom-up approach shown by the previous dendrograms. Comparing these two unsupervised machine learning techniques, the hierarchical method has proven to cluster better than the K means even after 50 iterations to test the centers “centriods” for accuracy in the code shows as the following: *...centers=7,nstart=50)*.
+
+```{r echo=TRUE}
+# build physical profile for categories 13, 23, 27 & 28
+m2<-rbind(c(1,2),c(1,3))
+layout(m2)
+par(mar=c(5,4,5,2))
+plot(Weight,Height,col=cutree(PPhclustMC,k=7),pch=19,
+     main="Height & Weight Using 7 Clusters",
+     xlab="Weight in Kilograms",
+     ylab="Height in Centimeters")
+legend("topright",pch=19,col=as.character(1:7),
+       legend=as.character(1:7))
+title(list("Physical Profile for Categories 13, 23, 27 & 28",
+        cex=1.5,col="red",font=6),line=-1,outer=T)
+plot(density(PhysicalProfile$Age),main="Age Distribution")
+barplot(BMI1$Freq,names.ar=BMI1$Var1,cex.names=0.7,
+        main="Body Mass Index Frequencies",
+        xlab="Body Mas Index",
+        ylab="Frequencies")
+```
+
+Now that we have proven which method to categorize and build our physical profile, we can can assess the overall picture of categories: 13, 23, 27 and 28. Per the above plots, most of the employees in the 99 employee sample shows a higher BMI and appears between late 30’s and early 40’s. The next plot will answer the final part of our original question “What is the most convincing reason for absences based on the data set? Let us take a closer look and see if this algorithm really helped us find the underlying reason for employee absenteeism.
+
+```{r echo=TRUE}
+# test clustered categories for physical profile answers
+stackbar1<-with(PhysicalProfile, table(Reason,Groups))
+stackbar2<-stackbar1[c(14,23,27,28),]
+
+m1<-rbind(c(1,2),c(1,3))
+layout(m1)
+par(mar=c(5,4,5,2))
+barplot(stackbar2,col=as.character(4:8),
+        main="Absense Reasons Per Cluster",
+        xlab="Clustered Group",
+        ylab="Top 10% Reasons For Absenses")
+  legend("topright",pch=19,col=as.character(4:8),
+       legend=c(
+         "musculoskeletal diseases",
+         "medical consultation",
+         "physiotherapy",
+         "dental consultation"),cex=0.8)
+title(list("Physical Profile Analysis for 7 Clustered Groups",cex=1.5,
+             col="red",font=6),line=-1,outer=T)
+boxplot(Absentees$Body.mass.index~Absentees$Groups,
+        main="BMI Per Cluster",
+        xlab="Clustered Group",
+        ylab="Body Mass Index")
+boxplot(Absentees$Age~Absentees$Groups,
+        main="Age Per Cluster",
+        xlab="Clustered Group",
+        ylab="Age Range")
+```
+
+The above plots are broken down into the seven clusters. As we can see clusters one and two have the majority of employee absenteeism reason frequencies and to take a closer look into these two clusters: we can see some higher than our majority age and BMI.
+
+This concludes our EDA using clustering analysis and the unsupervised machine learning exercise. In the conclusion of our research, we chose hierarchical clustering using the manhattan method and the complete linkage. In this clustering, we were able to see more clearly what physical profiles and age groups were contributing to employee absenteeism. In a final word, it is unlawful for the Human Resources department to target individuals based on their physical profiles. However, this data would provide very beneficial in enacting policies to promote to employees benefits that would contribute to this clustered group.
+
+Works Cited:
+
+* [Github README](https://github.com/alanoakes/ClusteringExercise_EmployeeAbsence)
+* [Johns Hopkins Bloomberg SPH Data Science](https://www.coursera.org/specializations/jhu-data-science)
+* [UCI Machine Learning Repo](https://archive.ics.uci.edu/ml/datasets/Absenteeism+at+work)
